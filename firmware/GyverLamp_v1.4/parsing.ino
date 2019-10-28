@@ -1,7 +1,6 @@
 void parseUDP()
 {
   int32_t packetSize = Udp.parsePacket();
-  char buff[MAX_UDP_BUFFER_SIZE], *endToken = NULL;
 
   if (packetSize)
   {
@@ -10,9 +9,41 @@ void parseUDP()
     strcpy(inputBuffer, packetBuffer);
 
     #ifdef GENERAL_DEBUG
-    Serial.print(F("Inbound UDP packet: "));
-    Serial.println(inputBuffer);
+    LOG.print(F("Inbound UDP packet: "));
+    LOG.println(inputBuffer);
     #endif
+
+    if (Udp.remoteIP() == WiFi.localIP())                   // не реагировать на свои же пакеты
+    {
+      return;
+    }
+
+    char reply[MAX_UDP_BUFFER_SIZE];
+    processInputBuffer(inputBuffer, reply, true);
+
+    #if (USE_MQTT)                                          // отправка ответа выполнения команд по MQTT, если разрешено
+    if (espMode == 1U)
+    {
+      strcpy(MqttManager::mqttBuffer, reply);               // разрешение определяется при выполнении каждой команды отдельно, команды GET, DEB, DISCOVER и OTA, пришедшие по UDP, игнорируются (приходят раз в 2 секунды от приложения)
+    }
+    #endif
+    
+    Udp.beginPacket(Udp.remoteIP(), Udp.remotePort());
+    Udp.write(reply);
+    Udp.endPacket();
+
+    #ifdef GENERAL_DEBUG
+    LOG.print(F("Outbound UDP packet: "));
+    LOG.println(reply);
+    LOG.println();
+    #endif
+  }
+}
+
+
+void processInputBuffer(char *inputBuffer, char *outputBuffer, bool generateOutput)
+{
+    char buff[MAX_UDP_BUFFER_SIZE], *endToken = NULL;
 
     if (!strncmp_P(inputBuffer, PSTR("DEB"), 3))
     {
@@ -25,7 +56,7 @@ void parseUDP()
 
     else if (!strncmp_P(inputBuffer, PSTR("GET"), 3))
     {
-      sendCurrent();
+      sendCurrent(inputBuffer);
     }
 
     else if (!strncmp_P(inputBuffer, PSTR("EFF"), 3))
@@ -34,10 +65,19 @@ void parseUDP()
       memcpy(buff, &inputBuffer[3], strlen(inputBuffer));   // взять подстроку, состоящую последних символов строки inputBuffer, начиная с символа 4
       currentMode = (uint8_t)atoi(buff);
       loadingFlag = true;
+      settChanged = true;
+      eepromTimeout = millis();
       FastLED.clear();
       delay(1);
-      sendCurrent();
+      sendCurrent(inputBuffer);
       FastLED.setBrightness(modes[currentMode].Brightness);
+
+      #if (USE_MQTT)
+      if (espMode == 1U)
+      {
+        MqttManager::needToPublish = true;
+      }
+      #endif
     }
 
     else if (!strncmp_P(inputBuffer, PSTR("BRI"), 3))
@@ -48,7 +88,14 @@ void parseUDP()
       loadingFlag = true;
       settChanged = true;
       eepromTimeout = millis();
-      sendCurrent();
+      sendCurrent(inputBuffer);
+
+      #if (USE_MQTT)
+      if (espMode == 1U)
+      {
+        MqttManager::needToPublish = true;
+      }
+      #endif
     }
 
     else if (!strncmp_P(inputBuffer, PSTR("SPD"), 3))
@@ -58,7 +105,14 @@ void parseUDP()
       loadingFlag = true;
       settChanged = true;
       eepromTimeout = millis();
-      sendCurrent();
+      sendCurrent(inputBuffer);
+
+      #if (USE_MQTT)
+      if (espMode == 1U)
+      {
+        MqttManager::needToPublish = true;
+      }
+      #endif
     }
 
     else if (!strncmp_P(inputBuffer, PSTR("SCA"), 3))
@@ -68,7 +122,14 @@ void parseUDP()
       loadingFlag = true;
       settChanged = true;
       eepromTimeout = millis();
-      sendCurrent();
+      sendCurrent(inputBuffer);
+
+      #if (USE_MQTT)
+      if (espMode == 1U)
+      {
+        MqttManager::needToPublish = true;
+      }
+      #endif
     }
 
     else if (!strncmp_P(inputBuffer, PSTR("P_ON"), 4))
@@ -78,7 +139,14 @@ void parseUDP()
       settChanged = true;
       eepromTimeout = millis();
       changePower();
-      sendCurrent();
+      sendCurrent(inputBuffer);
+
+      #if (USE_MQTT)
+      if (espMode == 1U)
+      {
+        MqttManager::needToPublish = true;
+      }
+      #endif
     }
 
     else if (!strncmp_P(inputBuffer, PSTR("P_OFF"), 5))
@@ -87,7 +155,14 @@ void parseUDP()
       settChanged = true;
       eepromTimeout = millis();
       changePower();
-      sendCurrent();
+      sendCurrent(inputBuffer);
+
+      #if (USE_MQTT)
+      if (espMode == 1U)
+      {
+        MqttManager::needToPublish = true;
+      }
+      #endif
     }
 
     else if (!strncmp_P(inputBuffer, PSTR("ALM_SET"), 7))
@@ -97,27 +172,33 @@ void parseUDP()
       if (strstr_P(inputBuffer, PSTR("ON")) - inputBuffer == 9)
       {
         alarms[alarmNum].State = true;
-        sendAlarms();
+        sendAlarms(inputBuffer);
       }
       else if (strstr_P(inputBuffer, PSTR("OFF")) - inputBuffer == 9)
       {
         alarms[alarmNum].State = false;
-        sendAlarms();
+        sendAlarms(inputBuffer);
       }
       else
       {
         memcpy(buff, &inputBuffer[8], strlen(inputBuffer)); // взять подстроку, состоящую последних символов строки inputBuffer, начиная с символа 9
         alarms[alarmNum].Time = atoi(buff);
-        uint8_t hour = floor(alarms[alarmNum].Time / 60);
-        uint8_t minute = alarms[alarmNum].Time - hour * 60;
-        sendAlarms();
+        sendAlarms(inputBuffer);
       }
       EepromManager::SaveAlarmsSettings(&alarmNum, alarms);
+
+      #if (USE_MQTT)
+      if (espMode == 1U)
+      {
+        strcpy(MqttManager::mqttBuffer, inputBuffer);
+        MqttManager::needToPublish = true;
+      }
+      #endif
     }
 
     else if (!strncmp_P(inputBuffer, PSTR("ALM_GET"), 7))
     {
-      sendAlarms();
+      sendAlarms(inputBuffer);
     }
 
     else if (!strncmp_P(inputBuffer, PSTR("DAWN"), 4))
@@ -125,12 +206,19 @@ void parseUDP()
       memcpy(buff, &inputBuffer[4], strlen(inputBuffer));   // взять подстроку, состоящую последних символов строки inputBuffer, начиная с символа 5
       dawnMode = atoi(buff) - 1;
       EepromManager::SaveDawnMode(&dawnMode);
-      sendAlarms();
+      sendAlarms(inputBuffer);
+
+      #if (USE_MQTT)
+      if (espMode == 1U)
+      {
+        MqttManager::needToPublish = true;
+      }
+      #endif
     }
 
     else if (!strncmp_P(inputBuffer, PSTR("DISCOVER"), 8))  // обнаружение приложением модуля esp в локальной сети
     {
-      if (ESP_MODE == 1)                                    // работает только в режиме WiFi клиента
+      if (espMode == 1U)                                    // работает только в режиме WiFi клиента
       {
         sprintf_P(inputBuffer, PSTR("IP %u.%u.%u.%u:%u"),
           WiFi.localIP()[0],
@@ -143,7 +231,7 @@ void parseUDP()
 
     else if (!strncmp_P(inputBuffer, PSTR("TMR_GET"), 7))
     {
-      sendTimer();
+      sendTimer(inputBuffer);
     }
 
     else if (!strncmp_P(inputBuffer, PSTR("TMR_SET"), 7))
@@ -158,12 +246,19 @@ void parseUDP()
       TimerManager::TimeToFire = millis() + strtoull(buff, &endToken, 10) * 1000;
 
       TimerManager::TimerHasFired = false;
-      sendTimer();
+      sendTimer(inputBuffer);
+
+      #if (USE_MQTT)
+      if (espMode == 1U)
+      {
+        MqttManager::needToPublish = true;
+      }
+      #endif
     }
 
     else if (!strncmp_P(inputBuffer, PSTR("FAV_GET"), 7))
     {
-        FavoritesManager::SetStatus(inputBuffer);
+      FavoritesManager::SetStatus(inputBuffer);
     }
 
     else if (!strncmp_P(inputBuffer, PSTR("FAV_SET"), 7))
@@ -172,6 +267,13 @@ void parseUDP()
       FavoritesManager::SetStatus(inputBuffer);
       settChanged = true;
       eepromTimeout = millis();
+
+      #if (USE_MQTT)
+      if (espMode == 1U)
+      {
+        MqttManager::needToPublish = true;
+      }
+      #endif
     }
 
     else if (!strncmp_P(inputBuffer, PSTR("OTA"), 3))
@@ -188,6 +290,30 @@ void parseUDP()
       #endif
     }
 
+    else if (!strncmp_P(inputBuffer, PSTR("BTN"), 3))
+    {
+      if (strstr_P(inputBuffer, PSTR("ON")) - inputBuffer == 4)
+      {
+        buttonEnabled = true;
+        EepromManager::SaveButtonEnabled(&buttonEnabled);
+        sendCurrent(inputBuffer);
+      }
+      else if (strstr_P(inputBuffer, PSTR("OFF")) - inputBuffer == 4)
+      {
+        buttonEnabled = false;
+        EepromManager::SaveButtonEnabled(&buttonEnabled);
+        sendCurrent(inputBuffer);
+      }
+
+      #if (USE_MQTT)
+      if (espMode == 1U)
+      {
+        strcpy(MqttManager::mqttBuffer, inputBuffer);
+        MqttManager::needToPublish = true;
+      }
+      #endif
+    }
+
     else
     {
       inputBuffer[0] = '\0';
@@ -198,71 +324,59 @@ void parseUDP()
       return;
     }
 
-    if (Udp.remoteIP() == WiFi.localIP())                   // не реагировать на свои же пакеты
+    if (generateOutput)                                     // если запрошен вывод ответа выполнения команд, копируем его в исходящий буфер
     {
-      return;
+      strcpy(outputBuffer, inputBuffer);
     }
-
-    char reply[strlen(inputBuffer) + 1];
-    strcpy(reply, inputBuffer);
-    inputBuffer[0] = '\0';                                  // очистка буфера, читобы не он не интерпретировался, как следующий udp пакет
-    Udp.beginPacket(Udp.remoteIP(), Udp.remotePort());
-    Udp.write(reply);
-    Udp.endPacket();
-
-    #ifdef GENERAL_DEBUG
-    Serial.print(F("Outbound UDP packet: "));
-    Serial.println(reply);
-    Serial.println();
-    #endif
-  }
+    inputBuffer[0] = '\0';                                  // очистка буфера, читобы не он не интерпретировался, как следующий входной пакет
 }
 
-void sendCurrent()
+void sendCurrent(char *outputBuffer)
 {
-  sprintf_P(inputBuffer, PSTR("CURR %u %u %u %u %u %u"),
+  sprintf_P(outputBuffer, PSTR("CURR %u %u %u %u %u %u"),
     currentMode,
     modes[currentMode].Brightness,
     modes[currentMode].Speed,
     modes[currentMode].Scale,
     ONflag,
-    ESP_MODE);
+    espMode);
   
   #ifdef USE_NTP
-  strcat_P(inputBuffer, PSTR(" 1"));
+  strcat_P(outputBuffer, PSTR(" 1"));
   #else
-  strcat_P(inputBuffer, PSTR(" 0"));
+  strcat_P(outputBuffer, PSTR(" 0"));
   #endif
 
-  sprintf_P(inputBuffer, PSTR("%s %u"), inputBuffer, (uint8_t)TimerManager::TimerRunning);
+  sprintf_P(outputBuffer, PSTR("%s %u"), outputBuffer, (uint8_t)TimerManager::TimerRunning);
+  sprintf_P(outputBuffer, PSTR("%s %u"), outputBuffer, (uint8_t)buttonEnabled);
 
   #ifdef USE_NTP
-  sprintf_P(inputBuffer, PSTR("%s %s"), inputBuffer, timeClient.getFormattedTime().c_str());
+  sprintf_P(outputBuffer, PSTR("%s %s"), outputBuffer, timeClient.getFormattedTime().c_str());
   #else
-  sprintf_P(inputBuffer, PSTR("%s %ull"), inputBuffer, millis());
+  sprintf_P(outputBuffer, PSTR("%s %ull"), outputBuffer, millis());
   #endif
 }
 
-void sendAlarms()
+void sendAlarms(char *outputBuffer)
 {
-  strcpy_P(inputBuffer, PSTR("ALMS"));
+  strcpy_P(outputBuffer, PSTR("ALMS"));
 
   for (byte i = 0; i < 7; i++)
   {
-    sprintf_P(inputBuffer, PSTR("%s %u"), inputBuffer, (uint8_t)alarms[i].State);
+    sprintf_P(outputBuffer, PSTR("%s %u"), outputBuffer, (uint8_t)alarms[i].State);
   }
 
   for (byte i = 0; i < 7; i++)
   {
-    sprintf_P(inputBuffer, PSTR("%s %u"), inputBuffer, alarms[i].Time);
+    sprintf_P(outputBuffer, PSTR("%s %u"), outputBuffer, alarms[i].Time);
   }
 
-  sprintf_P(inputBuffer, PSTR("%s %u"), inputBuffer, dawnMode + 1);
+  sprintf_P(outputBuffer, PSTR("%s %u"), outputBuffer, dawnMode + 1);
 }
 
-void sendTimer()
+void sendTimer(char *outputBuffer)
 {
-  sprintf_P(inputBuffer, PSTR("TMR %u %u %u"),
+  sprintf_P(outputBuffer, PSTR("TMR %u %u %u"),
     TimerManager::TimerRunning,
     TimerManager::TimerOption,
    (TimerManager::TimerRunning ? (uint16_t)floor((TimerManager::TimeToFire - millis()) / 1000) : 0));

@@ -16,8 +16,8 @@
   - Добавлено "#define USE_NTP" - позволяет запретить обращаться в интернет
   - Добавлено "#define ESP_USE_BUTTON - позволяет собирать лампу без физической кнопки, иначе яркость эффектов самопроизвольно растёт до максимальной
   - Переработаны параметры IP адресов, STA_STATIC_IP теперь пустой по умолчанию - избавляет от путаницы с IP адресами из неправильных диапазонов
-  - Добавлено "#define GENERAL_DEBUG" - выводит в Serial некоторые отладочные сообщения
-  - Добавлено "#define WIFIMAN_DEBUG (true)" - выводит в Serial отладочные сообщения библиотеки WiFiManager
+  - Добавлено "#define GENERAL_DEBUG" - выводит в Serial/Telnet некоторые отладочные сообщения
+  - Добавлено "#define WIFIMAN_DEBUG (true)" - выводит в Serial/Telnet отладочные сообщения библиотеки WiFiManager
   - Добавлена таблица с тест кейсами
   - Форматирование кода, комментарии
   --- 11.07.2019
@@ -64,9 +64,41 @@
   - Реорганизован код, исправлены ошибки
   --- 20.09.2019
   - Добавлена возможность сохранять состояние (вкл/выкл) режима "Избранное"; не сбрасывается выключением матрицы, не сбрасывается перезапуском модуля esp
-  - Убрана очистка параметров WiFi при старте с зажатой кнопкой; регулируется директивой ESP_RESET_ON_STASRT, которая определена как false по умолчанию
+  - Убрана очистка параметров WiFi при старте с зажатой кнопкой; регулируется директивой ESP_RESET_ON_START, которая определена как false по умолчанию
   --- 24.09.2019
   - Добавлены изменения из прошивка от Alex Gyver v1.5: бегущая строка с IP адресом лампы по пятикратному клику на кнопку
+  --- 29.09.2019
+  - Добавлена опция вывода отладочных сообщений по пртоколу telnet вместо serial для удалённой отладки
+  - Исправлена ошибка регулировки яркости кнопкой
+  --- 05.10.2019
+  - Добавлено управление по протоколу MQTT
+  - Исправлена ошибка выключения будильника кнопкой
+  - Добавлена задержка в 1 секунду сразу после старта, в течение которой нужно нажать кнопку, чтобы очистить сохранённые параметры WiFi (если ESP_RESET_ON_START == true)
+  --- 12.10.2019
+  - Добавлена возможность сменить рабочий режим лампы (ESP_MODE) без необходимости перепрошивки; вызывается по семикратному клику по кнопке при включенной матрице; сохраняется в EEPROM
+  - Изменён алгоритм работы будильника:
+  -  * обновление его оттенка/яркости происходит 1 раз в 3 секунды вместо 1 раза в минуту
+  -  * диоды разбиты на 6 групп, первой из которых назначается новый оттенок/яркость 1 раз в 3 секунды, вторая "отстаёт" на 1 шаг, третья - на 2 шага и т.д. (для большей плавности)
+  - Добавлена визуальная сигнализация о некоторых важных действиях/состояниях лампы:
+  -  * при запуске в режиме WiFi клиента и ещё не настроенных параметрах WiFi сети (когда их нужно ввести)                                                     - 1 короткая (0,25 сек) вспышка жёлтым
+  -  * если лампа стартовала в режиме WiFi клиента с ненастроенными параметрами WiFi сети, и они не были введены за отведённый таймаут (перед перезагрузкой)   - 1 короткая вспышка красным
+  -  * при переходе лампы в режим обновления по воздуху (OTA) по двум четырёхкратным кликам по кнопке или по кнопке OTA из android приложения                  - 2 стандартных (0,5 сек) вспышки жёлтым
+  -  * если лампа была переведена в режим OTA, но не дождалась прошивки за отведённый таймаут (перед перезагрузкой)                                            - 2 стандартных вспышки красным
+  -  * при переключении рабочего режима лампы WiFi точка доступа/WiFi клиент семикратным кликом по кнопке (перед перезагрузкой)                                - 3 стандартных вспышки красным
+  - Уменьшен таймаут подключения к WiFi сети до 6 секунд; вызвано увеличившейся продолжительностью работы функции setup(), она в сумме должна быть меньше 8 секунд
+  - Оптимизирован код
+  --- 14.10.2019
+  - Если при первом старте в режиме WiFi клиента запрашиваемые имя и пароль WiFi сети не введены за отведённый таймаут (5 минут), лампа перезагрузится в режиме точки доступа
+  - Добавлен вывод времени бегущей строкой:
+  -  * по запросу - шестикратному клику - текущее время белым цветом;
+  -  * периодически - определяется константой PRINT_TIME в Constants.h - от раза в час (красным цветом) до раза в минуту (синим цветом) с яркостью текущего эффекта как при включенной, так и при выключенной матрице
+  --- 19.10.2019
+  - Добавлены "ночные часы" (от NIGHT_HOURS_START до NIGHT_HOURS_STOP включительно) и "дневные часы" (всё остальное время), для которых доступна регулировка яркости для вывода времени бегущей строкой - NIGHT_HOURS_BRIGHTNESS и DAY_HOURS_BRIGHTNESS
+  --- 20.10.2019
+  - Добавлена блокировка кнопки на лампе из android приложения; сохраняется в EEPROM память
+  --- 24.10.2019
+  - Добавлен вывод сигнала (HIGH/LOW - настраивается константой MOSFET_LEVEL) синхронно с включением матрицы на пин MOSFET транзистора (настраивается константой MOSFET_PIN)
+  - Добавлен вывод сигнала (HIGH/LOW - настраивается константой ALARM_LEVEL) на пин будильника (настраивается константой ALARM_PIN); сигнал подаётся в течение одной минуты, начиная со времени, на которое заведён будильник
 */
 
 // Ссылка для менеджера плат:
@@ -93,6 +125,9 @@
 #ifdef OTA
 #include "OtaManager.h"
 #endif
+#if USE_MQTT
+#include "MqttManager.h"
+#endif
 #include "TimerManager.h"
 #include "FavoritesManager.h"
 #include "EepromManager.h"
@@ -110,13 +145,33 @@ NTPClient timeClient(ntpUDP, NTP_ADDRESS, GMT * 3600, NTP_INTERVAL);
 #endif
 
 timerMinim timeTimer(3000);
+bool ntpServerAddressResolved = false;
+uint32_t lastTimePrinted = 0U;
 
 #ifdef ESP_USE_BUTTON
 GButton touch(BTN_PIN, LOW_PULL, NORM_OPEN);
 #endif
+
 #ifdef OTA
-OtaManager otaManager;
+OtaManager otaManager(&showWarning);
 OtaPhase OtaManager::OtaFlag = OtaPhase::None;
+#endif
+
+#if USE_MQTT
+AsyncMqttClient* mqttClient = NULL;
+AsyncMqttClient* MqttManager::mqttClient = NULL;
+char* MqttManager::mqttServer = NULL;
+char* MqttManager::mqttUser = NULL;
+char* MqttManager::mqttPassword = NULL;
+char* MqttManager::clientId = NULL;
+char* MqttManager::lampInputBuffer = NULL;
+char* MqttManager::topicInput = NULL;
+char* MqttManager::topicOutput = NULL;
+bool MqttManager::needToPublish = false;
+char MqttManager::mqttBuffer[] = {};
+uint32_t MqttManager::mqttLastConnectingAttempt = 0;
+SendCurrentDelegate MqttManager::sendCurrentDelegate = NULL;
+// volatile uint32_t wifiLastConnectingAttempt = 0;
 #endif
 
 // --- ИНИЦИАЛИЗАЦИЯ ПЕРЕМЕННЫХ -------
@@ -131,7 +186,7 @@ AlarmType alarms[7];
 static const uint8_t dawnOffsets[] PROGMEM = {5, 10, 15, 20, 25, 30, 40, 50, 60};   // опции для выпадающего списка параметра "время перед 'рассветом'" (будильник); синхронизировано с android приложением
 uint8_t dawnMode;
 bool dawnFlag = false;
-long thisTime;
+uint32_t thisTime;
 bool manualOff = false;
 
 int8_t currentMode = 0;
@@ -139,6 +194,7 @@ bool loadingFlag = true;
 bool ONflag = false;
 uint32_t eepromTimeout;
 bool settChanged = false;
+bool buttonEnabled = true;
 
 unsigned char matrixValue[8][16];
 
@@ -159,65 +215,116 @@ void setup()
 {
   Serial.begin(115200);
   Serial.println();
+  ESP.wdtEnable(WDTO_8S);
 
-  ESP.wdtDisable();
-  //ESP.wdtEnable(WDTO_8S);
 
-  #if defined(ESP_USE_BUTTON) && ESP_RESET_ON_STASRT
-  touch.setStepTimeout(100);
-  touch.setClickTimeout(500);
-  buttonTick();
-  if (touch.state())                                        // сброс сохранённых SSID и пароля при старте с зажатой кнопкой, если разрешено
+  // ПИНЫ
+  #ifdef MOSFET_PIN                                         // инициализация пина, управляющего MOSFET транзистором в состояние "выключен"
+  pinMode(MOSFET_PIN, OUTPUT);
+  #ifdef MOSFET_LEVEL
+  digitalWrite(MOSFET_PIN, !MOSFET_LEVEL);
+  #endif
+  #endif
+
+  #ifdef ALARM_PIN                                          // инициализация пина, управляющего будильником в состояние "выключен"
+  pinMode(ALARM_PIN, OUTPUT);
+  #ifdef ALARM_LEVEL
+  digitalWrite(ALARM_PIN, !ALARM_LEVEL);
+  #endif
+  #endif
+
+
+  // TELNET
+  #if defined(GENERAL_DEBUG) && GENERAL_DEBUG_TELNET
+  telnetServer.begin();
+  for (uint8_t i = 0; i < 100; i++)                         // пауза 10 секунд в отладочном режиме, чтобы успеть подключиться по протоколу telnet до вывода первых сообщений
   {
-    wifiManager.resetSettings();
-
-    #ifdef GENERAL_DEBUG
-    Serial.println(F("Настройки WiFiManager сброшены"));
-    #endif
+    handleTelnetClient();
+    delay(100);
+    ESP.wdtFeed();
   }
   #endif
 
-  // ЛЕНТА
+
+  // КНОПКА
+  #if defined(ESP_USE_BUTTON)
+  touch.setStepTimeout(BUTTON_STEP_TIMEOUT);
+  touch.setClickTimeout(BUTTON_CLICK_TIMEOUT);
+    #if ESP_RESET_ON_START
+    delay(1000);                                            // ожидание инициализации модуля кнопки ttp223 (по спецификации 250мс)
+    if (digitalRead(BTN_PIN))
+    {
+      wifiManager.resetSettings();                          // сброс сохранённых SSID и пароля при старте с зажатой кнопкой, если разрешено
+      LOG.println(F("Настройки WiFiManager сброшены"));
+    }
+    buttonEnabled = true;                                   // при сбросе параметров WiFi сразу после старта с зажатой кнопкой, также разблокируется кнопка, если была заблокирована раньше
+    EepromManager::SaveButtonEnabled(&buttonEnabled);
+    ESP.wdtFeed();
+    #endif
+  #endif
+
+
+  // ЛЕНТА/МАТРИЦА
   FastLED.addLeds<WS2812B, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS)/*.setCorrection(TypicalLEDStrip)*/;
   FastLED.setBrightness(BRIGHTNESS);
-  if (CURRENT_LIMIT > 0) FastLED.setMaxPowerInVoltsAndMilliamps(5, CURRENT_LIMIT);
+  if (CURRENT_LIMIT > 0)
+  {
+    FastLED.setMaxPowerInVoltsAndMilliamps(5, CURRENT_LIMIT);
+  }
   FastLED.clear();
   FastLED.show();
 
+
+  // EEPROM
+  EepromManager::InitEepromSettings(                        // инициализация EEPROM; запись начального состояния настроек, если их там ещё нет; инициализация настроек лампы значениями из EEPROM
+    modes, alarms, &espMode, &ONflag, &dawnMode, &currentMode, &buttonEnabled,
+    &(FavoritesManager::ReadFavoritesFromEeprom),
+    &(FavoritesManager::SaveFavoritesToEeprom));
+  LOG.printf_P(PSTR("Рабочий режим лампы: ESP_MODE = %d\n"), espMode);
+
+
   // WI-FI
   wifiManager.setDebugOutput(WIFIMAN_DEBUG);                // вывод отладочных сообщений
-  //wifiManager.setMinimumSignalQuality();                  // установка минимально приемлемого уровня сигнала WiFi сетей (8% по умолчанию)
-  if (ESP_MODE == 0)                                        // режим WiFi точки доступа
+  // wifiManager.setMinimumSignalQuality();                 // установка минимально приемлемого уровня сигнала WiFi сетей (8% по умолчанию)
+  if (espMode == 0U)                                        // режим WiFi точки доступа
   {
     // wifiManager.setConfigPortalBlocking(false);
-    WiFi.softAPConfig(                                      // wifiManager.startConfigPortal использовать нельзя, т.к. он блокирует вычислительный процесс внутри себя, а затем перезагружает ESP, т.е. предназначен только для ввода SSID и пароля
-      IPAddress(AP_STATIC_IP[0], AP_STATIC_IP[1], AP_STATIC_IP[2], AP_STATIC_IP[3]),        // IP адрес WiFi точки доступа
-      IPAddress(AP_STATIC_IP[0], AP_STATIC_IP[1], AP_STATIC_IP[2], 1),                      // первый доступный IP адрес сети
-      IPAddress(255, 255, 255, 0));                                                         // маска подсети
+
+    if (sizeof(AP_STATIC_IP))
+    {
+      LOG.println(F("Используется статический IP адрес WiFi точки доступа"));
+      wifiManager.setAPStaticIPConfig(                      // wifiManager.startConfigPortal использовать нельзя, т.к. он блокирует вычислительный процесс внутри себя, а затем перезагружает ESP, т.е. предназначен только для ввода SSID и пароля
+        IPAddress(AP_STATIC_IP[0], AP_STATIC_IP[1], AP_STATIC_IP[2], AP_STATIC_IP[3]),      // IP адрес WiFi точки доступа
+        IPAddress(AP_STATIC_IP[0], AP_STATIC_IP[1], AP_STATIC_IP[2], 1),                    // первый доступный IP адрес сети
+        IPAddress(255, 255, 255, 0));                                                       // маска подсети
+    }
 
     WiFi.softAP(AP_NAME, AP_PASS);
 
-    Serial.println(F("Режим WiFi точки доступа"));
-    Serial.print(F("IP адрес: "));
-    Serial.println(WiFi.softAPIP());
+    LOG.println(F("Старт в режиме WiFi точки доступа"));
+    LOG.print(F("IP адрес: "));
+    LOG.println(WiFi.softAPIP());
 
     wifiServer.begin();
   }
   else                                                      // режим WiFi клиента (подключаемся к роутеру, если есть сохранённые SSID и пароль, иначе создаём WiFi точку доступа и запрашиваем их)
   {
-    Serial.println(F("Режим WiFi клиента"));
-    if (WiFi.SSID())
+    LOG.println(F("Старт в режиме WiFi клиента (подключение к роутеру)"));
+
+    if (WiFi.SSID().length())
     {
-      Serial.print(F("Подключение WiFi сети: "));
-      Serial.println(WiFi.SSID());
+      LOG.printf_P(PSTR("Подключение к WiFi сети: %s\n"), WiFi.SSID().c_str());
     }
     else
     {
-      Serial.println(F("WiFi сеть не определена, запуск WiFi точки доступа для настройки параметров подключения к WiFi сети..."));
+      LOG.println(F("WiFi сеть не определена, запуск WiFi точки доступа для настройки параметров подключения к WiFi сети..."));
+      showWarning(CRGB::Yellow, 250U, 250U);                // мигание жёлтым цветом 0,25 секунды (1 раз) - нужно ввести параметры WiFi сети для подключения
     }
 
-    if (STA_STATIC_IP)
+    if (sizeof(STA_STATIC_IP))
     {
+      LOG.print(F("Сконфигурирован статический IP адрес: "));
+      LOG.printf_P(PSTR("%u.%u.%u.%u\n"), STA_STATIC_IP[0], STA_STATIC_IP[1], STA_STATIC_IP[2], STA_STATIC_IP[3]);
       wifiManager.setSTAStaticIPConfig(
         IPAddress(STA_STATIC_IP[0], STA_STATIC_IP[1], STA_STATIC_IP[2], STA_STATIC_IP[3]),  // статический IP адрес ESP в режиме WiFi клиента
         IPAddress(STA_STATIC_IP[0], STA_STATIC_IP[1], STA_STATIC_IP[2], 1),                 // первый доступный IP адрес сети (справедливо для 99,99% случаев; для сетей меньше чем на 255 адресов нужно вынести в константы)
@@ -230,31 +337,46 @@ void setup()
 
     if (WiFi.status() != WL_CONNECTED)
     {
-      Serial.println(F("Время ожидания ввода SSID и пароля от WiFi сети или подключения к WiFi сети превышено\nПерезагрузка модуля"));
+      LOG.println(F("Время ожидания ввода SSID и пароля от WiFi сети или подключения к WiFi сети превышено\nЛампа будет перезагружена в режиме WiFi точки доступа!\n"));
 
-      #if defined(ESP8266)
-      ESP.reset();
-      #else
+      espMode = (espMode == 0U) ? 1U : 0U;
+      EepromManager::SaveEspMode(&espMode);
+
+      LOG.printf_P(PSTR("Рабочий режим лампы изменён и сохранён в энергонезависимую память\nНовый рабочий режим: ESP_MODE = %d, %s\nРестарт...\n"),
+        espMode, espMode == 0U ? F("WiFi точка доступа") : F("WiFi клиент (подключение к роутеру)"));
+
+      showWarning(CRGB::Red, 250U, 250U);                   // мигание красным цветом 0,25 секунды (1 раз) - ожидание ввода SSID'а и пароля WiFi сети прекращено, перезагрузка
       ESP.restart();
-      #endif
     }
 
-    Serial.print(F("IP адрес: "));
-    Serial.println(WiFi.localIP());
+    LOG.print(F("IP адрес: "));
+    LOG.println(WiFi.localIP());
   }
+  ESP.wdtFeed();
 
-  Serial.printf_P(PSTR("Порт UDP сервера: %u\n"), localPort);
+  LOG.printf_P(PSTR("Порт UDP сервера: %u\n"), localPort);
   Udp.begin(localPort);
 
-  EepromManager::InitEepromSettings(                        // инициализация EEPROM; запись начального состояния настроек, если их там ещё нет; инициализация настроек лампы значениями из EEPROM
-    modes, alarms, &ONflag, &dawnMode, &currentMode,
-    &(FavoritesManager::ReadFavoritesFromEeprom),
-    &(FavoritesManager::SaveFavoritesToEeprom));
 
+  // NTP
   #ifdef USE_NTP
   timeClient.begin();
+  ESP.wdtFeed();
   #endif
 
+
+  // MQTT
+  #if (USE_MQTT)
+  if (espMode == 1U)
+  {
+    mqttClient = new AsyncMqttClient();
+    MqttManager::setupMqtt(mqttClient, inputBuffer, &sendCurrent);    // создание экземпляров объектов для работы с MQTT, их инициализация и подключение к MQTT брокеру
+  }
+  ESP.wdtFeed();
+  #endif
+
+
+  // ОСТАЛЬНОЕ
   memset(matrixValue, 0, sizeof(matrixValue));
   randomSeed(micros());
   changePower();
@@ -266,19 +388,28 @@ void loop()
 {
   parseUDP();
   effectsTick();
+
   EepromManager::HandleEepromTick(&settChanged, &eepromTimeout, &ONflag, 
-  &currentMode, modes, &(FavoritesManager::SaveFavoritesToEeprom));
+    &currentMode, modes, &(FavoritesManager::SaveFavoritesToEeprom));
+
   #ifdef USE_NTP
   timeTick();
   #endif
+
   #ifdef ESP_USE_BUTTON
-  buttonTick();
+  if (buttonEnabled)
+  {
+    buttonTick();
+  }
   #endif
+
   #ifdef OTA
   otaManager.HandleOtaUpdate();                             // ожидание и обработка команды на обновление прошивки по воздуху
   #endif
+
   TimerManager::HandleTimer(&ONflag, &settChanged,          // обработка событий таймера отключения лампы
     &eepromTimeout, &changePower);
+
   if (FavoritesManager::HandleFavorites(                    // обработка режима избранных эффектов
       &ONflag,
       &currentMode,
@@ -292,6 +423,28 @@ void loop()
     FastLED.clear();
     delay(1);
   }
+
+  #if USE_MQTT
+  if (espMode == 1U && mqttClient && WiFi.isConnected() && !mqttClient->connected())
+  {
+    MqttManager::mqttConnect();                             // библиотека не умеет восстанавливать соединение в случае потери подключения к MQTT брокеру, нужно управлять этим явно
+    MqttManager::needToPublish = true;
+  }
+
+  if (MqttManager::needToPublish)
+  {
+    if (strlen(inputBuffer) > 0)                            // проверка входящего MQTT сообщения; если оно не пустое - выполнение команды из него и формирование MQTT ответа
+    {
+      processInputBuffer(inputBuffer, MqttManager::mqttBuffer, true);
+    }
+    
+    MqttManager::publishState();
+  }
+  #endif
+
+  #if defined(GENERAL_DEBUG) && GENERAL_DEBUG_TELNET
+  handleTelnetClient();
+  #endif
+
   ESP.wdtFeed();                                            // пнуть собаку
-  yield();                                                  // обработать все "служебные" задачи: wdt, WiFi подключение и т.д. (?)
 }
