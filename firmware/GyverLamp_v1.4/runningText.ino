@@ -67,8 +67,9 @@ void printTime(uint32_t thisTime, bool onDemand, bool ONflag) // периоди�
 {
   #if defined(USE_NTP) && defined(PRINT_TIME)               // вывод, только если используется синхронизация времени и если заказан его вывод бегущей строкой
 
-  if (espMode != 1U || !ntpServerAddressResolved)           // вывод только в режиме WiFi клиента и только, если имя сервера времени разрезолвлено
+  if (espMode != 1U || !ntpServerAddressResolved || !timeSynched)     // вывод только в режиме WiFi клиента и только, если имя сервера времени разрезолвлено
   {
+    showWarning(CRGB::Red, 4000U, 500U);                    // мигание красным цветом 4 секунды - смена рабочего режима лампы, перезагрузка
     return;
   }
 
@@ -136,7 +137,17 @@ void printTime(uint32_t thisTime, bool onDemand, bool ONflag) // периоди�
     loadingFlag = true;
     FastLED.setBrightness(getBrightnessForPrintTime(thisTime, ONflag));
     delay(1);
+
+    #if defined(MOSFET_PIN) && defined(MOSFET_LEVEL)        // установка сигнала в пин, управляющий MOSFET транзистором, матрица должна быть включена на время вывода текста
+    digitalWrite(MOSFET_PIN, MOSFET_LEVEL);
+    #endif
+
     while (!fillString(stringTime, letterColor)) { delay(1); ESP.wdtFeed(); }
+
+    #if defined(MOSFET_PIN) && defined(MOSFET_LEVEL)        // установка сигнала в пин, управляющий MOSFET транзистором, соответственно состоянию вкл/выкл матрицы или будильника
+    digitalWrite(MOSFET_PIN, ONflag || (dawnFlag && !manualOff) ? MOSFET_LEVEL : !MOSFET_LEVEL);
+    #endif
+
     loadingFlag = true;
   }
 

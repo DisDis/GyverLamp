@@ -80,11 +80,12 @@
   -  * обновление его оттенка/яркости происходит 1 раз в 3 секунды вместо 1 раза в минуту
   -  * диоды разбиты на 6 групп, первой из которых назначается новый оттенок/яркость 1 раз в 3 секунды, вторая "отстаёт" на 1 шаг, третья - на 2 шага и т.д. (для большей плавности)
   - Добавлена визуальная сигнализация о некоторых важных действиях/состояниях лампы:
-  -  * при запуске в режиме WiFi клиента и ещё не настроенных параметрах WiFi сети (когда их нужно ввести)                                                     - 1 короткая (0,25 сек) вспышка жёлтым
-  -  * если лампа стартовала в режиме WiFi клиента с ненастроенными параметрами WiFi сети, и они не были введены за отведённый таймаут (перед перезагрузкой)   - 1 короткая вспышка красным
-  -  * при переходе лампы в режим обновления по воздуху (OTA) по двум четырёхкратным кликам по кнопке или по кнопке OTA из android приложения                  - 2 стандартных (0,5 сек) вспышки жёлтым
-  -  * если лампа была переведена в режим OTA, но не дождалась прошивки за отведённый таймаут (перед перезагрузкой)                                            - 2 стандартных вспышки красным
-  -  * при переключении рабочего режима лампы WiFi точка доступа/WiFi клиент семикратным кликом по кнопке (перед перезагрузкой)                                - 3 стандартных вспышки красным
+  -  * при запуске в режиме WiFi клиента и ещё не настроенных параметрах WiFi сети (когда их нужно ввести)                                                     - 1 вспышка жёлтым
+  -  * если лампа стартовала в режиме WiFi клиента с ненастроенными параметрами WiFi сети, и они не были введены за отведённый таймаут (перед перезагрузкой)   - 1 вспышка красным
+  -  * при переходе лампы в режим обновления по воздуху (OTA) по двум четырёхкратным кликам по кнопке или по кнопке OTA из android приложения                  - 2 вспышки жёлтым
+  -  * если лампа была переведена в режим OTA, но не дождалась прошивки за отведённый таймаут (перед перезагрузкой)                                            - 2 вспышки красным
+  -  * при переключении рабочего режима лампы WiFi точка доступа/WiFi клиент семикратным кликом по кнопке (перед перезагрузкой)                                - 3 вспышки красным
+  -  * при запросе вывода времени бегущей строкой, если время не синхронизировано                                                                              - 4 вспышки красным
   - Уменьшен таймаут подключения к WiFi сети до 6 секунд; вызвано увеличившейся продолжительностью работы функции setup(), она в сумме должна быть меньше 8 секунд
   - Оптимизирован код
   --- 14.10.2019
@@ -99,6 +100,17 @@
   --- 24.10.2019
   - Добавлен вывод сигнала (HIGH/LOW - настраивается константой MOSFET_LEVEL) синхронно с включением матрицы на пин MOSFET транзистора (настраивается константой MOSFET_PIN)
   - Добавлен вывод сигнала (HIGH/LOW - настраивается константой ALARM_LEVEL) на пин будильника (настраивается константой ALARM_PIN); сигнал подаётся в течение одной минуты, начиная со времени, на которое заведён будильник
+  --- 02.11.2019
+  - Добавлен переход на летнее/зимнее время (изменены настройки часового пояса, см. Constants.h); добавлена библиотека Timezone
+  - Добавлен эффект Белый огонь
+  - Исправлена ошибка сброса сигнала на пине ALARM_PIN при отключении будильника вручную
+  - Добавлена сигнализация (4 вспышки красным) при запросе вывода времени шестикратным кликом, если время не синхронизировано
+  --- 04.11.2019
+  - Исправлена ошибка невключения MOSFET'а матрицы при срабатывании "рассвета"
+  - Исправлена ошибка невключения MOSFET'а матрицы при выводе времени и IP адреса
+  --- 08.11.2019
+  - Исправлены ошибки назначения статического IP адреса
+  - Добавлен набросок WiFiManager Captive Portal для ввода пользовательских параметров и настроек
 */
 
 // Ссылка для менеджера плат:
@@ -111,6 +123,7 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include <WiFiManager.h>
+#include "CaptivePortalManager.h"
 #include <WiFiUdp.h>
 #include <EEPROM.h>
 #include "Types.h"
@@ -121,7 +134,9 @@
 #include "fonts.h"
 #ifdef USE_NTP
 #include <NTPClient.h>
+#include <Timezone.h>
 #endif
+#include <TimeLib.h>
 #ifdef OTA
 #include "OtaManager.h"
 #endif
@@ -141,11 +156,20 @@ WiFiUDP Udp;
 
 #ifdef USE_NTP
 WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, NTP_ADDRESS, GMT * 3600, NTP_INTERVAL);
+NTPClient timeClient(ntpUDP, NTP_ADDRESS, 0, NTP_INTERVAL); // объект, запрашивающий время с ntp сервера; в нём смещение часового пояса не используется (перенесено в объект localTimeZone); здесь всегда должно быть время UTC
+  #ifdef SUMMER_WINTER_TIME
+  TimeChangeRule summerTime = { SUMMER_TIMEZONE_NAME, SUMMER_WEEK_NUM, SUMMER_WEEKDAY, SUMMER_MONTH, SUMMER_HOUR, SUMMER_OFFSET };
+  TimeChangeRule winterTime = { WINTER_TIMEZONE_NAME, WINTER_WEEK_NUM, WINTER_WEEKDAY, WINTER_MONTH, WINTER_HOUR, WINTER_OFFSET };
+  Timezone localTimeZone(summerTime, winterTime);
+  #else
+  TimeChangeRule localTime = { LOCAL_TIMEZONE_NAME, LOCAL_WEEK_NUM, LOCAL_WEEKDAY, LOCAL_MONTH, LOCAL_HOUR, LOCAL_OFFSET };
+  Timezone localTimeZone(localTime);
+  #endif
 #endif
 
 timerMinim timeTimer(3000);
 bool ntpServerAddressResolved = false;
+bool timeSynched = false;
 uint32_t lastTimePrinted = 0U;
 
 #ifdef ESP_USE_BUTTON
@@ -171,7 +195,6 @@ bool MqttManager::needToPublish = false;
 char MqttManager::mqttBuffer[] = {};
 uint32_t MqttManager::mqttLastConnectingAttempt = 0;
 SendCurrentDelegate MqttManager::sendCurrentDelegate = NULL;
-// volatile uint32_t wifiLastConnectingAttempt = 0;
 #endif
 
 // --- ИНИЦИАЛИЗАЦИЯ ПЕРЕМЕННЫХ -------
@@ -209,6 +232,8 @@ uint16_t FavoritesManager::Dispersion = DEFAULT_FAVORITES_DISPERSION;
 uint8_t FavoritesManager::UseSavedFavoritesRunning = 0;
 uint8_t FavoritesManager::FavoriteModes[MODE_AMOUNT] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 uint32_t FavoritesManager::nextModeAt = 0UL;
+
+bool CaptivePortalManager::captivePortalCalled = false;
 
 
 void setup()
@@ -286,6 +311,7 @@ void setup()
   // WI-FI
   wifiManager.setDebugOutput(WIFIMAN_DEBUG);                // вывод отладочных сообщений
   // wifiManager.setMinimumSignalQuality();                 // установка минимально приемлемого уровня сигнала WiFi сетей (8% по умолчанию)
+  CaptivePortalManager *captivePortalManager = new CaptivePortalManager(&wifiManager);
   if (espMode == 0U)                                        // режим WiFi точки доступа
   {
     // wifiManager.setConfigPortalBlocking(false);
@@ -314,38 +340,68 @@ void setup()
     if (WiFi.SSID().length())
     {
       LOG.printf_P(PSTR("Подключение к WiFi сети: %s\n"), WiFi.SSID().c_str());
+
+      if (sizeof(STA_STATIC_IP))                            // ВНИМАНИЕ: настраивать статический ip WiFi клиента можно только при уже сохранённых имени и пароле WiFi сети (иначе проявляется несовместимость библиотек WiFiManager и WiFi)
+      {
+        LOG.print(F("Сконфигурирован статический IP адрес: "));
+        LOG.printf_P(PSTR("%u.%u.%u.%u\n"), STA_STATIC_IP[0], STA_STATIC_IP[1], STA_STATIC_IP[2], STA_STATIC_IP[3]);
+        wifiManager.setSTAStaticIPConfig(
+          IPAddress(STA_STATIC_IP[0], STA_STATIC_IP[1], STA_STATIC_IP[2], STA_STATIC_IP[3]),// статический IP адрес ESP в режиме WiFi клиента
+          IPAddress(STA_STATIC_IP[0], STA_STATIC_IP[1], STA_STATIC_IP[2], 1),               // первый доступный IP адрес сети (справедливо для 99,99% случаев; для сетей меньше чем на 255 адресов нужно вынести в константы)
+          IPAddress(255, 255, 255, 0));                                                     // маска подсети (справедливо для 99,99% случаев; для сетей меньше чем на 255 адресов нужно вынести в константы)
+      }
     }
     else
     {
       LOG.println(F("WiFi сеть не определена, запуск WiFi точки доступа для настройки параметров подключения к WiFi сети..."));
-      showWarning(CRGB::Yellow, 250U, 250U);                // мигание жёлтым цветом 0,25 секунды (1 раз) - нужно ввести параметры WiFi сети для подключения
-    }
-
-    if (sizeof(STA_STATIC_IP))
-    {
-      LOG.print(F("Сконфигурирован статический IP адрес: "));
-      LOG.printf_P(PSTR("%u.%u.%u.%u\n"), STA_STATIC_IP[0], STA_STATIC_IP[1], STA_STATIC_IP[2], STA_STATIC_IP[3]);
-      wifiManager.setSTAStaticIPConfig(
-        IPAddress(STA_STATIC_IP[0], STA_STATIC_IP[1], STA_STATIC_IP[2], STA_STATIC_IP[3]),  // статический IP адрес ESP в режиме WiFi клиента
-        IPAddress(STA_STATIC_IP[0], STA_STATIC_IP[1], STA_STATIC_IP[2], 1),                 // первый доступный IP адрес сети (справедливо для 99,99% случаев; для сетей меньше чем на 255 адресов нужно вынести в константы)
-        IPAddress(255, 255, 255, 0));                                                       // маска подсети (справедливо для 99,99% случаев; для сетей меньше чем на 255 адресов нужно вынести в константы)
+      CaptivePortalManager::captivePortalCalled = true;
+      wifiManager.setBreakAfterConfig(true);                // перезагрузка после ввода и сохранения имени и пароля WiFi сети
+      showWarning(CRGB::Yellow, 1000U, 500U);               // мигание жёлтым цветом 0,5 секунды (1 раз) - нужно ввести параметры WiFi сети для подключения
     }
 
     wifiManager.setConnectTimeout(ESP_CONN_TIMEOUT);        // установка времени ожидания подключения к WiFi сети, затем старт WiFi точки доступа
     wifiManager.setConfigPortalTimeout(ESP_CONF_TIMEOUT);   // установка времени работы WiFi точки доступа, затем перезагрузка; отключить watchdog?
     wifiManager.autoConnect(AP_NAME, AP_PASS);              // пытаемся подключиться к сохранённой ранее WiFi сети; в случае ошибки, будет развёрнута WiFi точка доступа с указанными AP_NAME и паролем на время ESP_CONN_TIMEOUT секунд; http://AP_STATIC_IP:ESP_HTTP_PORT (обычно http://192.168.0.1:80) - страница для ввода SSID и пароля от WiFi сети роутера
 
-    if (WiFi.status() != WL_CONNECTED)
+    delete captivePortalManager;
+    captivePortalManager = NULL;
+
+    if (WiFi.status() != WL_CONNECTED)                      // подключение к WiFi не установлено
     {
-      LOG.println(F("Время ожидания ввода SSID и пароля от WiFi сети или подключения к WiFi сети превышено\nЛампа будет перезагружена в режиме WiFi точки доступа!\n"));
+      if (CaptivePortalManager::captivePortalCalled)        // была показана страница настройки WiFi ...
+      {
+        if (millis() < (ESP_CONN_TIMEOUT + ESP_CONF_TIMEOUT) * 1000U) // пользователь ввёл некорректное имя WiFi сети и/или пароль или запрошенная WiFi сеть недоступна
+        {
+          LOG.println(F("Не удалось подключиться к WiFi сети\nУбедитесь в корректности имени WiFi сети и пароля\nРестарт для запроса нового имени WiFi сети и пароля...\n"));
+          wifiManager.resetSettings();
+        }
+        else                                                // пользователь не вводил имя WiFi сети и пароль
+        {
+          LOG.println(F("Время ожидания ввода SSID и пароля от WiFi сети или подключения к WiFi сети превышено\nЛампа будет перезагружена в режиме WiFi точки доступа!\n"));
 
-      espMode = (espMode == 0U) ? 1U : 0U;
-      EepromManager::SaveEspMode(&espMode);
+          espMode = (espMode == 0U) ? 1U : 0U;
+          EepromManager::SaveEspMode(&espMode);
 
-      LOG.printf_P(PSTR("Рабочий режим лампы изменён и сохранён в энергонезависимую память\nНовый рабочий режим: ESP_MODE = %d, %s\nРестарт...\n"),
-        espMode, espMode == 0U ? F("WiFi точка доступа") : F("WiFi клиент (подключение к роутеру)"));
+          LOG.printf_P(PSTR("Рабочий режим лампы изменён и сохранён в энергонезависимую память\nНовый рабочий режим: ESP_MODE = %d, %s\nРестарт...\n"),
+            espMode, espMode == 0U ? F("WiFi точка доступа") : F("WiFi клиент (подключение к роутеру)"));
+        }
+      }
+      else                                                  // страница настройки WiFi не была показана, не удалось подключиться к ранее сохранённой WiFi сети (перенос в новую WiFi сеть)
+      {
+        LOG.println(F("Не удалось подключиться к WiFi сети\nВозможно, заданная WiFi сеть больше не доступна\nРестарт для запроса нового имени WiFi сети и пароля...\n"));
+        wifiManager.resetSettings();
+      }
 
-      showWarning(CRGB::Red, 250U, 250U);                   // мигание красным цветом 0,25 секунды (1 раз) - ожидание ввода SSID'а и пароля WiFi сети прекращено, перезагрузка
+      showWarning(CRGB::Red, 1000U, 500U);                  // мигание красным цветом 0,5 секунды (1 раз) - ожидание ввода SSID'а и пароля WiFi сети прекращено, перезагрузка
+      ESP.restart();
+    }
+
+    if (CaptivePortalManager::captivePortalCalled &&        // первое подключение к WiFi сети после настройки параметров WiFi на странице настройки - нужна перезагрузка для применения статического IP
+        sizeof(STA_STATIC_IP) &&
+        WiFi.localIP() != IPAddress(STA_STATIC_IP[0], STA_STATIC_IP[1], STA_STATIC_IP[2], STA_STATIC_IP[3]))
+    {
+      LOG.println(F("Рестарт для применения заданного статического IP адреса..."));
+      delay(100);
       ESP.restart();
     }
 
